@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT Hotkeys
 // @namespace    https://github.com/chirag127
-// @version      2.0.0
+// @version      2.1.0
 // @description  Six rebindable YouTube shortcuts (like, dislike, next, previous, like+next, dislike+next). Draws nothing and never fights another script for the keyboard.
 // @author       chirag127
 // @license      MIT
@@ -9,8 +9,8 @@
 // @icon         https://www.youtube.com/favicon.ico
 // @homepageURL  https://github.com/chirag127/yt-hotkeys-userscript
 // @supportURL   https://github.com/chirag127/yt-hotkeys-userscript/issues
-// @downloadURL  https://github.com/chirag127/yt-hotkeys-userscript/raw/main/yt-hotkeys.user.js
-// @updateURL    https://github.com/chirag127/yt-hotkeys-userscript/raw/main/yt-hotkeys.user.js
+// @downloadURL  https://github.com/chirag127/yt-hotkeys-userscript/raw/main/yt-hotkeys-userscript.user.js
+// @updateURL    https://github.com/chirag127/yt-hotkeys-userscript/raw/main/yt-hotkeys-userscript.user.js
 // @require      https://raw.githubusercontent.com/chirag127/yt-core-lib/main/yt-core-lib.js
 // @grant        GM_getValue
 // @grant        GM_setValue
