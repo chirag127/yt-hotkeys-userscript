@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         YT Hotkeys
 // @namespace    https://github.com/chirag127
-// @version      2.1.2
-// @description  Six rebindable YouTube shortcuts (like, dislike, next, previous, like+next, dislike+next). Draws nothing and never fights another script for the keyboard.
+// @version      3.1.1
+// @description  Six rebindable YouTube shortcuts. One "Settings…" menu entry opens a popup. The only script in the collection that binds a keydown listener.
 // @author       chirag127
 // @license      MIT
 // @match        https://www.youtube.com/*
@@ -11,20 +11,16 @@
 // @supportURL   https://github.com/chirag127/yt-hotkeys-userscript/issues
 // @downloadURL  https://github.com/chirag127/yt-hotkeys-userscript/raw/main/yt-hotkeys-userscript.user.js
 // @updateURL    https://github.com/chirag127/yt-hotkeys-userscript/raw/main/yt-hotkeys-userscript.user.js
-// @require      https://raw.githubusercontent.com/chirag127/yt-core-lib/main/yt-core-lib.js?v=1.1.1
+// @require      https://raw.githubusercontent.com/chirag127/yt-core-lib/main/yt-core-lib-1.2.0.js
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
+// @connect      *
 // @noframes
 // @run-at       document-idle
 // ==/UserScript==
-
-/*
- * THE ONLY script in this collection that binds a keydown listener. If another script
- * ever needs a shortcut, it must add it here — two scripts binding the same key is the
- * failure mode this repo exists to prevent.
- */
 
 (function () {
   'use strict';
@@ -33,50 +29,35 @@
     console.error('[hotkeys] yt-core-lib did not load — @require failed.');
     return;
   }
-  if (!Ytk.featureOn('hotkeys', true)) return;
 
   var ACTIONS = [
-    { id: 'like', label: 'Like', def: 'a' },
-    { id: 'dislike', label: 'Dislike', def: 'd' },
-    { id: 'next', label: 'Next video', def: 'n', repeatable: true },
-    { id: 'prev', label: 'Previous video', def: 'p', repeatable: true },
-    { id: 'likeNext', label: 'Like + next', def: 'shift+a' },
-    { id: 'dislikeNext', label: 'Dislike + next', def: 'shift+d' }
+    { id: 'like', key: 'hkLike', label: 'Like', def: 'a' },
+    { id: 'dislike', key: 'hkDislike', label: 'Dislike', def: 'd' },
+    { id: 'next', key: 'hkNext', label: 'Next video', def: 'n', repeatable: true },
+    { id: 'prev', key: 'hkPrev', label: 'Previous video', def: 'p', repeatable: true },
+    { id: 'likeNext', key: 'hkLikeNext', label: 'Like + next', def: 'shift+a' },
+    { id: 'dislikeNext', key: 'hkDislikeNext', label: 'Dislike + next', def: 'shift+d' }
   ];
 
-  var MODS = ['ctrl', 'alt', 'shift', 'meta'];
   var DEAD = ['Shift', 'Control', 'Alt', 'Meta', 'AltGraph', 'CapsLock', 'Dead', 'Unidentified'];
 
-  function bindings() {
-    var saved = Ytk.storeGet('hotkeys', {}) || {};
-    var out = {};
-    for (var i = 0; i < ACTIONS.length; i++) {
-      out[ACTIONS[i].id] = normalize(saved[ACTIONS[i].id]) || ACTIONS[i].def;
-    }
-    return out;
-  }
-
-  function normalize(value) {
-    if (!value || typeof value !== 'string') return null;
-    var parts = value.split('+').map(function (p) { return p.trim().toLowerCase(); }).filter(Boolean);
-    if (!parts.length) return null;
-    var key = parts.pop();
-    if (!key) return null;
-    var mods = [];
-    for (var i = 0; i < MODS.length; i++) if (parts.indexOf(MODS[i]) !== -1) mods.push(MODS[i]);
-    return mods.concat(key).join('+');
-  }
-
   function comboFromEvent(e) {
-    if (e.isComposing) return null;
-    if (DEAD.indexOf(e.key) !== -1) return null;
-    if (!e.key) return null;
+    if (e.isComposing || !e.key || DEAD.indexOf(e.key) !== -1) return null;
     var mods = [];
     if (e.ctrlKey) mods.push('ctrl');
     if (e.altKey) mods.push('alt');
     if (e.shiftKey) mods.push('shift');
     if (e.metaKey) mods.push('meta');
     return mods.concat(e.key.toLowerCase()).join('+');
+  }
+
+  function bindings() {
+    var s = Ytk.settings();
+    var out = {};
+    for (var i = 0; i < ACTIONS.length; i++) {
+      out[ACTIONS[i].id] = s[ACTIONS[i].key] || ACTIONS[i].def;
+    }
+    return out;
   }
 
   function isTyping(node) {
@@ -92,10 +73,7 @@
   function clickFirst(selectors) {
     for (var i = 0; i < selectors.length; i++) {
       var el = document.querySelector(selectors[i]);
-      if (el && !el.disabled && el.getAttribute('aria-disabled') !== 'true') {
-        el.click();
-        return true;
-      }
+      if (el && !el.disabled && el.getAttribute('aria-disabled') !== 'true') { el.click(); return true; }
     }
     return false;
   }
@@ -115,14 +93,16 @@
 
   function onKeyDown(e) {
     if (e.defaultPrevented) return;
-    if (isTyping(e.target) || isTyping(document.activeElement)) return;
+    var cfgS = Ytk.settings();
+    if (cfgS.hotkeyBlockTyping !== false && (isTyping(e.target) || isTyping(document.activeElement))) return;
     var combo = comboFromEvent(e);
     if (!combo) return;
     var map = bindings();
     for (var i = 0; i < ACTIONS.length; i++) {
       var action = ACTIONS[i];
       if (map[action.id] !== combo) continue;
-      if (e.repeat && !action.repeatable) { e.preventDefault(); return; }
+      var canRepeat = action.repeatable && cfgS.hotkeyRepeatSeek !== false;
+      if (e.repeat && !canRepeat) { e.preventDefault(); return; }
       e.preventDefault();
       var ok = false;
       try { ok = run(action.id); } catch (err) { ok = false; }
@@ -131,64 +111,58 @@
     }
   }
 
-  try { localStorage.setItem('ytk.hotkeys.boot', JSON.stringify({ at: Date.now(), core: Ytk.VERSION, bindings: bindings() })); } catch (e) {}
+  var boot = {
+    core: Ytk.VERSION,
+    bindings: bindings(),
+    enabled: Ytk.featureOn('hotkeys', true)
+  };
+  try { localStorage.setItem('ytk.hotkeys.boot', JSON.stringify(boot)); } catch (e) { /* ignore */ }
+
+  if (!boot.enabled) return;
 
   document.addEventListener('keydown', onKeyDown, true);
 
-  // ---------------------------------------------------------------- menu
+  // Deep link: any YouTube URL with #ytk-settings opens the settings popup.
+  if (location.hash === '#ytk-settings') setTimeout(settingsPopup, 400);
 
-  function rebind(id) {
-    var action = null;
-    for (var i = 0; i < ACTIONS.length; i++) if (ACTIONS[i].id === id) action = ACTIONS[i];
-    if (!action) return;
-    var map = bindings();
-    var entered = prompt('New key for "' + action.label + '"\n\nCurrent: ' + map[id]
-      + '\n\nType a key or combo: a, shift+a, ctrl+arrowright.\nLeave empty to keep current.', map[id]);
-    if (entered === null) return;
-    var combo = normalize(entered);
-    if (!combo) { alert('That is not a usable key. Nothing changed.'); return; }
-    for (var j = 0; j < ACTIONS.length; j++) {
-      if (ACTIONS[j].id !== id && map[ACTIONS[j].id] === combo) {
-        alert('Conflict: "' + combo + '" is already "' + ACTIONS[j].label + '". Nothing changed.');
-        return;
-      }
+  // ---------------------------------------------------------------- the ONE menu entry
+
+  function settingsPopup() {
+    if (typeof Ytk.openSettings !== 'function') {
+      alert('The shared core is out of date (v' + Ytk.VERSION + '). Reinstall this script so its @require is re-fetched.');
+      return;
     }
-    map[id] = combo;
-    Ytk.storeSet('hotkeys', map);
-    alert('"' + action.label + '" is now ' + combo + '.');
-  }
+    var fields = ACTIONS.map(function (a) {
+      return { key: a.key, label: a.label, type: 'key', def: a.def };
+    });
+    fields.push({
+      key: 'hotkeyFeedback',
+      label: 'Show a small toast when a shortcut fires',
+      type: 'checkbox',
+      def: false
+    });
+    fields.push({ key: 'hotkeys', label: 'Enable these shortcuts', type: 'checkbox', def: true });
+    fields.push({ key: 'hotkeyBlockTyping', label: 'Never fire while typing in a box', type: 'checkbox', def: true, hint: 'Strongly recommended. Turning this off makes the keys fire inside search and comment boxes.' });
+    fields.push({ key: 'hotkeyRepeatSeek', label: 'Let a held key repeat for next / previous', type: 'checkbox', def: true });
 
-  function resetAll() {
-    if (!confirm('Reset all six shortcuts to their defaults?')) return;
-    var map = {};
-    for (var i = 0; i < ACTIONS.length; i++) map[ACTIONS[i].id] = ACTIONS[i].def;
-    Ytk.storeSet('hotkeys', map);
-    alert('Hotkeys reset to defaults.');
-  }
-
-  function toggleFeedback() {
-    var s = Ytk.settings();
-    Ytk.saveSettings({ hotkeyFeedback: !s.hotkeyFeedback });
-    alert('Hotkey feedback toast: ' + (!s.hotkeyFeedback ? 'ON' : 'OFF'));
-  }
-
-  function showAll() {
-    var map = bindings();
-    var lines = ['YT Hotkeys — active bindings', ''];
-    for (var i = 0; i < ACTIONS.length; i++) lines.push('  ' + ACTIONS[i].label + ' = ' + map[ACTIONS[i].id]);
-    lines.push('');
-    lines.push('YouTube already uses j k l f m c t i, digits, arrows, space, < > , . and Shift+N / Shift+P.');
-    alert(lines.join('\n'));
+    Ytk.openSettings({
+      actions: [
+        { label: 'Reset all keys to defaults', run: function () {
+            var patch = {};
+            ACTIONS.forEach(function (a) { patch[a.key] = a.def; });
+            Ytk.saveSettings(patch);
+            Ytk.toast('Keys reset to defaults');
+          } },
+        { label: 'Test: flash the feedback toast', run: function () { Ytk.toast('Hotkeys are working'); } }
+      ],
+      title: 'YT Hotkeys',
+      subtitle: 'Click Rebind, then press the key you want. YouTube already uses j k l f m c t i, digits, arrows, space and Shift+n / Shift+p.',
+      sectionTitle: 'Shortcuts',
+      fields: fields
+    });
   }
 
   if (typeof GM_registerMenuCommand === 'function') {
-    for (var i = 0; i < ACTIONS.length; i++) {
-      (function (action) {
-        GM_registerMenuCommand('Rebind ' + action.label + '…', function () { rebind(action.id); });
-      })(ACTIONS[i]);
-    }
-    GM_registerMenuCommand('Hotkeys: reset to defaults', resetAll);
-    GM_registerMenuCommand('Hotkeys: show all', showAll);
-    GM_registerMenuCommand('Hotkeys: toggle feedback toast', toggleFeedback);
+    GM_registerMenuCommand('Settings…', settingsPopup);
   }
 })();
